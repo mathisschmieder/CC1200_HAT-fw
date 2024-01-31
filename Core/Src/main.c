@@ -547,8 +547,13 @@ int main(void)
   {
 	  if(interface_comm==COMM_RDY) //if a valid interface frame is detected
 	  {
+#ifdef USE_USART
 		  HAL_UART_AbortReceive_IT(&huart1);
 		  HAL_UART_Receive_IT(&huart1, (uint8_t*)rxb, 1);
+#endif
+#ifdef USE_USB
+		  //TODO
+#endif
 		  interface_comm=COMM_IDLE;
 
 		  uint32_t freq;
