@@ -18,6 +18,7 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "usb_device.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -26,6 +27,7 @@
 #include <stdio.h>
 #include <stdarg.h>
 #include "interface_cmds.h"
+#include "usbd_cdc_if.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -39,6 +41,9 @@
 #define CC1200_REG_NUM	51						//number of regs used to initialize CC1200s
 #define BSB_BUFLEN		4800					//tx/rx buffer size in samples (200ms at fs=24kHz)
 #define BSB_RUNUP		2880					//120ms worth of baseband data (at 24kHz)
+
+//#define USE_USART								//uncomment to use USART on RPi header
+#define USE_USB									//uncomment to use USB-C connnector
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -53,8 +58,6 @@ TIM_HandleTypeDef htim10;
 TIM_HandleTypeDef htim11;
 
 UART_HandleTypeDef huart1;
-
-PCD_HandleTypeDef hpcd_USB_OTG_FS;
 
 /* USER CODE BEGIN PV */
 #include "enums.h"
@@ -94,7 +97,6 @@ void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_SPI1_Init(void);
 static void MX_USART1_UART_Init(void);
-static void MX_USB_OTG_FS_PCD_Init(void);
 static void MX_TIM10_Init(void);
 static void MX_TIM11_Init(void);
 /* USER CODE BEGIN PFP */
@@ -366,7 +368,12 @@ void config_rf(enum mode_t mode, struct trx_data_t trx_data)
 void interface_resp(enum cmd_t cmd, uint8_t resp)
 {
 	uint8_t tmp[3]={cmd, 3, resp};
-	HAL_UART_Transmit_IT(&huart1, tmp, 3);
+#ifdef USE_USART
+		HAL_UART_Transmit_IT(&huart1, tmp, 3);
+#endif
+#ifdef USE_USB
+		CDC_Transmit_FS(tmp, 3);
+#endif
 }
 
 //interrupts
@@ -472,9 +479,9 @@ int main(void)
   MX_GPIO_Init();
   MX_SPI1_Init();
   MX_USART1_UART_Init();
-  MX_USB_OTG_FS_PCD_Init();
   MX_TIM10_Init();
   MX_TIM11_Init();
+  MX_USB_DEVICE_Init();
   /* USER CODE BEGIN 2 */
   //enable FPU
   #if (__FPU_PRESENT == 1) && (__FPU_USED == 1)
@@ -521,7 +528,16 @@ int main(void)
 
   //enable interface comms over UART1
   //memset((uint8_t*)rxb, 0, sizeof(rxb));
+#ifdef USE_USART
   HAL_UART_Receive_IT(&huart1, (uint8_t*)rxb, 1);
+#endif
+#ifdef USE_USB
+  /* char DataToSend[53];
+  uint8_t MessageLength = 0;
+  MessageLength = sprintf(DataToSend, "CC1200-HAT 420-450 MHz\nFW v1.0.0 by Wojciech SP5WWP\n");
+  CDC_Transmit_FS((uint8_t*)DataToSend, MessageLength); */
+  // TODO
+#endif
 
   /* USER CODE END 2 */
 
@@ -545,7 +561,12 @@ int main(void)
 		  		  resp[0]=CMD_PING;
 		  		  resp[1]=6;
 		  		  memcpy(&resp[2], (uint8_t*)&dev_err, sizeof(uint32_t));
+#ifdef USE_USART
 		  		  HAL_UART_Transmit_IT(&huart1, resp, 6); //error code, 0 for OK
+#endif
+#ifdef USE_USB
+		  		  CDC_Transmit_FS(resp, 6);
+#endif
 		  	  break;
 
 		  	  case CMD_SET_RX_FREQ:
@@ -617,10 +638,15 @@ int main(void)
 		  			HAL_Delay(10);
 		  			trx_writecmd(STR_STX);
 
+#ifdef USE_USART
 		  			//stop UART timeout timer
 		  			HAL_TIM_Base_Stop_IT(&htim10);
 		  			HAL_UART_AbortReceive_IT(&huart1);
 		  			HAL_UART_Receive_IT(&huart1, (uint8_t*)rxb, 1);
+#endif
+#ifdef USE_USB
+		  			// TODO
+#endif
 
 		  			//fill the run-up
 		  			memset((uint8_t*)tx_bsb_buff, 0, BSB_RUNUP);
@@ -680,7 +706,12 @@ int main(void)
 				  sprintf((char*)&ident[2], IDENT_STR);
 				  ident[0]=0x80; //a reply to "Get IDENT string" command
 				  ident[1]=strlen((char*)IDENT_STR)+2; //total length
+#ifdef USE_USART
 				  HAL_UART_Transmit_IT(&huart1, ident, ident[1]);
+#endif
+#ifdef USE_USB
+				  CDC_Transmit_FS(ident, ident[1]);
+#endif
 			  break;
 
 		  	  case CMD_GET_CAPS:
@@ -692,14 +723,24 @@ int main(void)
 		  		  resp[0]=CMD_GET_RX_FREQ;
 		  		  resp[1]=sizeof(uint32_t)+2;
 		  		  memcpy(&resp[2], (uint8_t*)&trx_data.rx_frequency, sizeof(uint32_t));
+#ifdef USE_USART
 		  		  HAL_UART_Transmit_IT(&huart1, resp, resp[1]);
+#endif
+#ifdef USE_USB
+				  CDC_Transmit_FS(resp, resp[1]);
+#endif
 			  break;
 
 		  	  case CMD_GET_TX_FREQ:
 		  		  resp[0]=CMD_GET_TX_FREQ;
 		  		  resp[1]=sizeof(uint32_t)+2;
 		  		  memcpy(&resp[2], (uint8_t*)&trx_data.tx_frequency, sizeof(uint32_t));
+#ifdef USE_USART
 		  		  HAL_UART_Transmit_IT(&huart1, resp, resp[1]);
+#endif
+#ifdef USE_USB
+				  CDC_Transmit_FS(resp, resp[1]);
+#endif
 			  break;
 
 		  	  /*case 0x88:
@@ -716,10 +757,15 @@ int main(void)
 	  }
 	  else if(interface_comm==COMM_TOT || interface_comm==COMM_OVF)
 	  {
+#ifdef USE_USART
 		  HAL_TIM_Base_Stop_IT(&htim10);
 		  HAL_UART_AbortReceive_IT(&huart1);
 		  rx_bc=0;
 		  HAL_UART_Receive_IT(&huart1, (uint8_t*)rxb, 1);
+#endif
+#ifdef USE_USB
+		  // TODO
+#endif
 		  interface_comm=COMM_IDLE;
 	  }
 
@@ -756,7 +802,12 @@ int main(void)
 		  //fetch baseband sample
 		  uint8_t tmp=0xFF; //whatever
 		  HAL_SPI_TransmitReceive(&hspi1, &tmp, (uint8_t*)&rx_bsb_sample, 1, 2);
+#ifdef USE_USART
 		  HAL_UART_Transmit_IT(&huart1, (uint8_t*)&rx_bsb_sample, 1);
+#endif
+#ifdef USE_USB
+		  CDC_Transmit_FS((uint8_t*)&rx_bsb_sample, 1);
+#endif
 		  bsb_rx_pend=0;
 	  }
     /* USER CODE END WHILE */
@@ -941,41 +992,6 @@ static void MX_USART1_UART_Init(void)
   /* USER CODE BEGIN USART1_Init 2 */
 
   /* USER CODE END USART1_Init 2 */
-
-}
-
-/**
-  * @brief USB_OTG_FS Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_USB_OTG_FS_PCD_Init(void)
-{
-
-  /* USER CODE BEGIN USB_OTG_FS_Init 0 */
-
-  /* USER CODE END USB_OTG_FS_Init 0 */
-
-  /* USER CODE BEGIN USB_OTG_FS_Init 1 */
-
-  /* USER CODE END USB_OTG_FS_Init 1 */
-  hpcd_USB_OTG_FS.Instance = USB_OTG_FS;
-  hpcd_USB_OTG_FS.Init.dev_endpoints = 4;
-  hpcd_USB_OTG_FS.Init.speed = PCD_SPEED_FULL;
-  hpcd_USB_OTG_FS.Init.dma_enable = DISABLE;
-  hpcd_USB_OTG_FS.Init.phy_itface = PCD_PHY_EMBEDDED;
-  hpcd_USB_OTG_FS.Init.Sof_enable = DISABLE;
-  hpcd_USB_OTG_FS.Init.low_power_enable = DISABLE;
-  hpcd_USB_OTG_FS.Init.lpm_enable = DISABLE;
-  hpcd_USB_OTG_FS.Init.vbus_sensing_enable = DISABLE;
-  hpcd_USB_OTG_FS.Init.use_dedicated_ep1 = DISABLE;
-  if (HAL_PCD_Init(&hpcd_USB_OTG_FS) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN USB_OTG_FS_Init 2 */
-
-  /* USER CODE END USB_OTG_FS_Init 2 */
 
 }
 
